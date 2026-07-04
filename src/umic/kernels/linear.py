@@ -1,11 +1,11 @@
-"""Plain Triton linear (x @ W^T [+ bias]) for projections where stock
-cuBLAS is DRAM-inefficient on Thor SM 11.0.
+"""Plain Triton linear (x @ W^T [+ bias]) for selected projection sites.
 
-Measured motivation (results/260610_m1_prefill/260610_gemm_breakdown):
-down_proj moves 788 MB/launch vs 183 MB theoretical (4.3x, L2 61.7%),
-q/o_proj 278 MB vs 84 MB (3.3x). k/v_proj launches are already at theory
-(1.0x) and must NOT be replaced — replacement is per-site, measurement-
-guided, not blanket.
+Measured motivation (private ncu archive, summarized in README): q/o
+projection traffic exceeds the theoretical byte floor on Thor SM 11.0, while
+k/v projections are already at theory and stay on cuBLAS. down_proj was also
+tested, but the full pipeline gate rejected it despite isolated wins, so it is
+not enabled in the adopted UMIC set. Replacement is per-site and measurement-
+guided, never blanket.
 
 Same tiling skeleton as fused_ffn (the config that hit L2 94% there).
 """

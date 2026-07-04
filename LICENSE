@@ -1,0 +1,23 @@
+Research Use Only License
+
+Copyright (c) 2026 soonhong99
+
+Permission is granted to use, copy, modify, and share this repository for
+non-commercial research and educational purposes only.
+
+You may not use this repository, its code, or derived works for commercial
+products, paid services, or production deployment without prior written
+permission from the copyright holder.
+
+This repository does not include NVIDIA Alpamayo model weights, datasets, or
+licenses. Use of NVIDIA Alpamayo 1.5 and any associated assets is governed by
+the applicable NVIDIA non-commercial research license and Hugging Face access
+terms.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE, ARISING FROM,
+OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

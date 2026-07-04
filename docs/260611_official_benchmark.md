@@ -36,7 +36,10 @@ raw: eager runs 3-5 = wall 3,612/3,846/3,622 · UMIC runs 4-5 = wall 2,700/2,703
   (flow의 InplaceKVCache 기여는 byte 자체를 줄이므로 조건 무관하게 유효 — flow −37.7%)
 - VE/Prefill/Flow 개선은 ncu byte 감소(−48/−66/−31%)와 정합 — 융합의 기여.
 
-## 남은 검증 항목
+## 후속 검증 상태
 
-1. **출력 등가성**: waypoint ADE(eager vs UMIC) 미측정 — 다음 작업
-2. UMIC 16-step steady 표본이 적음 (graph 캡처와 섞임) — 보고서 전 추가 표본 권장
+1. **출력 등가성**: 완료. `docs/260611_output_equivalence.md` 기준 PASS
+   (3,106 토큰 전부 일치, trajectory ADE 3.8 mm).
+2. UMIC 16-step steady 표본은 이후 repo 검증 실행(2026-07-04)에서 추가 확인됨.
+   보드 상태에 따라 eager 기준선이 움직이므로 `configs/expected_thor.yaml`의 sanity
+   range와 16-step normalized wall을 함께 본다.

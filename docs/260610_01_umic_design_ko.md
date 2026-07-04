@@ -4,6 +4,11 @@
 **선행 문서**: `260608_02_PyTorch_eager_커널융합_문제와_컴파일엔진_연구방향.md`, `260608_01_Alpamayo_4단계_실제_DRAM_대역폭_ncu_실측_분석.md`
 **코드 위치**: `src/umic/` (스켈레톤), `scripts/compile_engine/` (Thor 검증 스크립트)
 
+> 상태: 초기 설계서와 연구 로그를 보존한 문서다. 현재 공개 repo에서 바로 실행되는 경로는
+> `README.md`, `docs/current_scope.md`, `docs/onboarding.md`, `scripts/run_all.sh`를 기준으로
+> 한다. 이 문서 안의 `scripts/compile_engine/`, `results/`, `profiling_results/` 경로 일부는
+> private 연구 repo의 원자료를 가리키며, 공개 runtime repo에는 포함되어 있지 않다.
+
 ---
 
 ## 0. 한 문장 요약
