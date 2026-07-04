@@ -1,0 +1,37 @@
+# Expected per-stage latency ranges on Jetson AGX Thor (SM 11.0).
+#
+# Source: official same-condition benchmark, 2026-06-11
+#   (jetson_clocks locked, warmup 1 + 6 measured runs, steady-state = run 3+,
+#    clip 030c760c, prompt 3,086 tokens, 19 decode steps).
+#   eager 3,846 ms vs UMIC 2,701 ms (-29.8%), per stage:
+#   VE -42.7% / Prefill -46.1% / Decode 70.0 ms/step (-10.5%) / Flow -37.7%.
+#
+# Ranges are the benchmark point +-10% (wall +-8%) to absorb board-to-board
+# and thermal variation AT LOCKED CLOCKS. If a stage lands outside its range:
+#   SLOW -> almost always the DVFS governor (run `sudo jetson_clocks`) or a
+#           cold board (steady state needs warmup + ~3 runs);
+#   FAST -> different clip / shorter decode (wall scales with step count).
+#
+# Keys match umic.bench.collect_timing() output. Units: ms.
+
+conditions:
+  jetson_clocks: required          # sudo jetson_clocks before measuring
+  warmup_runs: 1
+  steady_state_from_run: 3
+  clip_id: 030c760c-ae38-49aa-9ad8-f5650a545d26
+  prompt_tokens: 3086
+  reference_decode_steps: 19
+
+eager:
+  VE_ms: [480, 590]
+  LM_Prefill_ms: [980, 1200]
+  decode_step_ss_ms: [72, 86]
+  Flow_ms: [650, 800]
+  wall_ms: [3540, 4160]
+
+umic:
+  VE_ms: [275, 340]
+  LM_Prefill_ms: [530, 650]
+  decode_step_ss_ms: [64, 77]
+  Flow_ms: [405, 495]
+  wall_ms: [2480, 2920]
