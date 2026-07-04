@@ -141,9 +141,24 @@ def main() -> None:
                   f"Decode {s['decode_step_ss_ms']:.1f}/step | "
                   f"Flow {s['Flow_ms']:.0f} | wall {s['wall_ms']:.0f} ms")
     if "eager_summary" in out and "umic_summary" in out:
-        e, u = out["eager_summary"]["wall_ms"], out["umic_summary"]["wall_ms"]
-        print(f"UMIC vs eager wall: {(u / e - 1) * 100:+.1f}%  "
-              f"(official reference: -29.8%)")
+        e, u = out["eager_summary"], out["umic_summary"]
+        # decode step count varies run-to-run (sampling), so compare walls
+        # normalized to a common step count — otherwise a 16-step eager vs
+        # a 19-step UMIC run understates the gain.
+        n_ref = expected.get("conditions", {}).get("reference_decode_steps", 16)
+
+        def norm_wall(s: dict) -> float:
+            return (s["VE_ms"] + s["LM_Prefill_ms"]
+                    + n_ref * s["decode_step_ss_ms"] + s["Flow_ms"])
+
+        ew, uw = norm_wall(e), norm_wall(u)
+        print(f"UMIC vs eager wall ({n_ref}-step normalized): "
+              f"{(uw / ew - 1) * 100:+.1f}%  ({ew:.0f} -> {uw:.0f} ms; "
+              f"official reference: -29.8%)")
+        out["normalized_comparison"] = {
+            "steps": n_ref, "eager_wall_ms": round(ew, 1),
+            "umic_wall_ms": round(uw, 1),
+            "improvement_pct": round((uw / ew - 1) * 100, 1)}
 
     out_path = Path(args.output) if args.output else \
         REPO_ROOT / "results" / f"run_{time.strftime('%y%m%d_%H%M%S')}.json"

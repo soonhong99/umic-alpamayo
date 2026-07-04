@@ -50,24 +50,28 @@ python scripts/run_pipeline.py --mode umic --runs 3
 
 run마다 단계별 ms가 이 보드의 기대 범위([configs/expected_thor.yaml](configs/expected_thor.yaml))와 함께 출력되고, 범위 안이면 `[OK]`, 벗어나면 `[SLOW]`/`[FAST]`로 판정된다.
 
+아래는 2026-07-04 이 repo 검증 실행의 실제 출력이다:
+
 ```
 === umic run 3/3 (19 decode steps) ===
 stage                measured      expected     verdict
 -------------------------------------------------------
-VE                    305.2 ms       275-340    [OK]
-LM Prefill            588.4 ms       530-650    [OK]
-Decode/step (SS)       70.1 ms         64-77    [OK]
-Flow                  449.3 ms       405-495    [OK]
-Wall total           2701.8 ms     2480-2920    [OK]
+VE                    259.0 ms       230-340    [OK]
+LM Prefill            577.0 ms       520-660    [OK]
+Decode/step (SS)       70.5 ms         64-78    [OK]
+Flow                  412.8 ms       370-500    [OK]
+Wall total           2614.9 ms     2300-2950    [OK]
 
- eager median: VE 532 | Prefill 1090 | Decode 78.2/step | Flow 721 | wall 3846 ms
-  umic median: VE 305 | Prefill 588  | Decode 70.0/step | Flow 449 | wall 2701 ms
-UMIC vs eager wall: -29.8%  (official reference: -29.8%)
+ eager median: VE 482 | Prefill 838 | Decode 73.1/step | Flow 666 | wall 3177 ms
+  umic median: VE 259 | Prefill 577 | Decode 70.5/step | Flow 413 | wall 2615 ms
+UMIC vs eager wall (16-step normalized): -24.7%  (3155 -> 2377 ms; official reference: -29.8%)
 ```
 
 판정 해석:
-- `[SLOW]`: 거의 항상 클럭 미고정(`sudo jetson_clocks` 후 재실행) 또는 웜업 부족(steady state는 warmup 포함 3+ run 뒤). 첫 UMIC run은 CUDA Graph 캡처(~19개)가 섞여 느린 것이 정상이며, 판정은 run 2+를 기준으로 본다.
+- `[SLOW]`: 거의 항상 클럭 미고정(`sudo jetson_clocks` 후 재실행) 또는 웜업 부족(steady state는 warmup 포함 3+ run 뒤). **첫 UMIC run은 CUDA Graph 캡처(~19개)로 decode가 ~100 ms/step 나오는 것이 정상**이며, 판정은 run 2+를 기준으로 본다.
 - `[FAST]`: 다른 clip이거나 decode step 수가 짧은 경우(wall은 step 수에 비례).
+- decode step 수는 샘플링에 따라 run마다 13~20으로 달라지므로, eager vs UMIC 최종 비교는 **16-step 정규화 wall** 기준으로 출력된다.
+- 전체 개선율은 그날의 eager 기준선에 따라 −18 ~ −30% 범위로 움직인다 (UMIC 절대치는 안정적, eager가 보드 상태에 더 민감). 공식 기준 수치는 [docs/260611_official_benchmark.md](docs/260611_official_benchmark.md).
 
 결과 JSON은 `results/run_<timestamp>.json`에 저장된다 (run별 전체 수치 + median 요약).
 
