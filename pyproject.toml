@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "umic"
+version = "0.1.0"
+description = "UMIC: Unified-Memory Inference Compiler runtime for Alpamayo on Jetson AGX Thor"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.8",
+    "transformers>=4.56",
+]
+
+[project.optional-dependencies]
+# Triton is required for the fused kernels; on Thor (SM 11.0) use the
+# board's own Triton 3.7.0 build (already in the alpamayo venv).
+triton = ["triton>=3.7"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
