@@ -26,6 +26,27 @@ import torch
 logger = logging.getLogger(__name__)
 
 
+GPU_DEVFREQ_CANDIDATES = (
+    "/sys/class/devfreq/gpu-gpc-0",        # Thor (JetPack 7)
+    "/sys/class/devfreq/gpu.0",            # earlier Jetson
+    "/sys/devices/platform/gpu.0/devfreq/gpu.0",
+)
+
+
+def gpu_clock_state() -> tuple[int, int] | None:
+    """(cur_freq, max_freq) in Hz, or None if no devfreq node is readable."""
+    from pathlib import Path
+
+    for base in GPU_DEVFREQ_CANDIDATES:
+        try:
+            cur = int(Path(base, "cur_freq").read_text())
+            mx = int(Path(base, "max_freq").read_text())
+            return cur, mx
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 class CUDATimer:
     """CUDA-event pair; ms() synchronizes lazily on first read."""
 

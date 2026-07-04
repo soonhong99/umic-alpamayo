@@ -62,15 +62,16 @@ def section_environment() -> "torch":
                "fused kernels unavailable — everything falls back to eager")
 
     # jetson_clocks state (measurement rule 1: locked clocks mandatory)
-    try:
-        cur = int(Path("/sys/class/devfreq/gpu.0/cur_freq").read_text())
-        mx = int(Path("/sys/class/devfreq/gpu.0/max_freq").read_text())
+    from umic.bench import gpu_clock_state
+    state = gpu_clock_state()
+    if state is None:
+        info("GPU devfreq", "not readable (non-Jetson host?)")
+    else:
+        cur, mx = state
         locked = cur >= mx
         status(locked, "GPU clock locked",
                f"{cur / 1e6:.0f} / {mx / 1e6:.0f} MHz"
                + ("" if locked else "  -> run: sudo jetson_clocks"))
-    except OSError:
-        info("GPU devfreq", "not readable (non-Jetson host?)")
     return torch
 
 

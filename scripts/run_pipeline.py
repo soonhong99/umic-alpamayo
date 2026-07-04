@@ -36,12 +36,13 @@ log = logging.getLogger("umic.run")
 
 def check_clocks() -> None:
     """Warn loudly if the GPU governor is not locked (measurement rule 1)."""
-    try:
-        cur = int(Path("/sys/class/devfreq/gpu.0/cur_freq").read_text())
-        mx = int(Path("/sys/class/devfreq/gpu.0/max_freq").read_text())
-    except OSError:
+    from umic.bench import gpu_clock_state
+
+    state = gpu_clock_state()
+    if state is None:
         log.warning("could not read GPU devfreq — clock state unknown")
         return
+    cur, mx = state
     if cur < mx:
         log.warning("*" * 64)
         log.warning("GPU clock %d < max %d: DVFS governor is active!", cur, mx)
