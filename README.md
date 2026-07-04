@@ -34,17 +34,20 @@ Thor의 기존 Alpamayo venv(`~/alpamayo1.5/a1_5_venv/`)를 그대로 쓰면 위
 ```bash
 git clone https://github.com/soonhong99/umic-alpamayo.git
 cd umic-alpamayo
-bash scripts/setup_thor.sh          # 클럭 고정(sudo) + venv + 환경 점검까지 한 번에
-python scripts/run_pipeline.py --mode both --runs 3   # eager vs UMIC A/B
+bash scripts/run_all.sh             # 초기 세팅부터 벤치마크까지 전부 한 번에
 ```
 
-`setup_thor.sh`가 하는 일: ① `sudo jetson_clocks` (필수, §7) ② `~/alpamayo1.5/a1_5_venv` 활성화 ③ `scripts/check_env.py` 실행.
+`run_all.sh` 하나가 실험 초기 세팅 전체를 순서대로 수행한다:
+① `sudo jetson_clocks` 클럭 고정 (비밀번호 1회 입력, §7 규칙 1) → ② `~/alpamayo1.5/a1_5_venv` 활성화 → ③ 환경+커널 점검 (실패 시 벤치마크 진입 전에 중단) → ④ eager vs UMIC 벤치마크 (**warmup 5회** + 측정 3회, §7 규칙 2 기본 내장).
 
-UMIC만 측정하려면:
+추가 인자는 그대로 벤치마크에 전달된다:
 
 ```bash
-python scripts/run_pipeline.py --mode umic --runs 3
+bash scripts/run_all.sh --mode umic            # UMIC만 측정
+bash scripts/run_all.sh --runs 6 --warmup 8    # 더 긴 측정
 ```
+
+단계를 나눠 실행하려면: `bash scripts/setup_thor.sh` (세팅+점검만) 후 `python scripts/run_pipeline.py --mode both`. `run_pipeline.py`를 단독 실행해도 클럭 미고정을 감지하면 스스로 `sudo -n jetson_clocks`로 고정을 시도하고, 실패하면 경고를 출력한다.
 
 ## 3. 실행하면 무엇이 나오는가
 
@@ -68,7 +71,7 @@ UMIC vs eager wall (16-step normalized): -24.7%  (3155 -> 2377 ms; official refe
 ```
 
 판정 해석:
-- `[SLOW]`: 거의 항상 클럭 미고정(`sudo jetson_clocks` 후 재실행) 또는 웜업 부족(steady state는 warmup 포함 3+ run 뒤). **첫 UMIC run은 CUDA Graph 캡처(~19개)로 decode가 ~100 ms/step 나오는 것이 정상**이며, 판정은 run 2+를 기준으로 본다.
+- `[SLOW]`: 거의 항상 클럭 미고정(`sudo jetson_clocks` 후 재실행) 또는 웜업 부족(steady state는 warmup 포함 5+ run 뒤, 기본값이 warmup 5). **첫 UMIC run은 CUDA Graph 캡처(~19개)로 decode가 ~100 ms/step 나오는 것이 정상**이며, 판정은 run 2+를 기준으로 본다.
 - `[FAST]`: 다른 clip이거나 decode step 수가 짧은 경우(wall은 step 수에 비례).
 - decode step 수는 샘플링에 따라 run마다 13~20으로 달라지므로, eager vs UMIC 최종 비교는 **16-step 정규화 wall** 기준으로 출력된다.
 - 전체 개선율은 그날의 eager 기준선에 따라 −18 ~ −30% 범위로 움직인다 (UMIC 절대치는 안정적, eager가 보드 상태에 더 민감). 공식 기준 수치는 [docs/260611_official_benchmark.md](docs/260611_official_benchmark.md).
@@ -129,8 +132,8 @@ docs/               공식 벤치마크 / 출력 등가성 / 설계서
 
 ## 7. 측정 규칙 (지키지 않으면 수치가 어긋난다)
 
-1. **측정 전 `sudo jetson_clocks` 필수.** decode처럼 memory-bound인 단계는 SM 사용률이 낮아 DVFS 거버너가 클럭을 올리지 않는다. 같은 코드가 거버너 상태에서 ~107 ms/step, 고정 상태에서 70 ms/step.
-2. **steady state는 warmup 포함 3+ run 후 판정.** allocator/페이지 워밍으로 모든 단계가 run 0→3에 걸쳐 계단식으로 내려온다. `run_pipeline.py`의 기본값(warmup 2 + runs 3)이 이 규칙을 반영한다.
+1. **측정 전 `sudo jetson_clocks` 필수.** decode처럼 memory-bound인 단계는 SM 사용률이 낮아 DVFS 거버너가 클럭을 올리지 않는다. 같은 코드가 거버너 상태에서 ~107 ms/step, 고정 상태에서 70 ms/step. `run_all.sh`가 첫 단계로 수행하며, `run_pipeline.py` 단독 실행 시에도 자동 감지+고정 시도.
+2. **steady state는 warmup 포함 5+ run 후 판정.** 클럭 고정 상태에서도 allocator/페이지 워밍으로 모든 단계가 run 0→4에 걸쳐 계단식으로 내려온다 (실측: VE 427→305 ms, decode 102→70 ms/step). `run_pipeline.py` 기본값이 **warmup 5 + 측정 3**이라 측정 run은 전부 steady state에서 시작한다.
 3. **첫 UMIC 추론은 CUDA Graph 캡처 비용이 섞인다.** 10 Hz 연속 운영을 모사한 설계라 두 번째 추론부터는 순수 replay다.
 
 ## 8. 배경 문서

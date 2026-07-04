@@ -14,7 +14,7 @@
 #
 # Interpretation of a verdict outside the range:
 #   SLOW -> almost always the DVFS governor (run `sudo jetson_clocks`),
-#           a cold board (steady state needs warmup + ~3 runs), or for
+#           a cold board (steady state needs 5+ runs incl. warmup), or for
 #           UMIC run 1 specifically: CUDA Graph capture (~19 graphs,
 #           decode ~100 ms/step once) — judge from run 2 onward.
 #   FAST -> different clip or fewer decode steps (wall scales with steps;
@@ -24,8 +24,8 @@
 
 conditions:
   jetson_clocks: required          # sudo jetson_clocks before measuring
-  warmup_runs: 2
-  steady_state_from_run: 2
+  warmup_runs: 5            # measurement rule: judge steady state after
+  steady_state_from_run: 1  # 5+ runs incl. warmup -> measured run 1 is already steady
   clip_id: 030c760c-ae38-49aa-9ad8-f5650a545d26
   prompt_tokens: 3086
   reference_decode_steps: 16       # step-normalized wall comparison basis

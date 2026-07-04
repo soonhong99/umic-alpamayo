@@ -34,8 +34,16 @@ logging.basicConfig(level=logging.INFO,
 log = logging.getLogger("umic.run")
 
 
-def check_clocks() -> None:
-    """Warn loudly if the GPU governor is not locked (measurement rule 1)."""
+def ensure_clocks() -> None:
+    """Lock the GPU clocks if possible; warn loudly otherwise (rule 1).
+
+    Tries `sudo -n jetson_clocks` (non-interactive) when the governor is
+    active, so a plain `run_pipeline.py` invocation self-locks on boards
+    where sudo is cached or passwordless. If sudo needs a password, run
+    `bash scripts/run_all.sh` (asks once) or `sudo jetson_clocks` first.
+    """
+    import subprocess
+
     from umic.bench import gpu_clock_state
 
     state = gpu_clock_state()
@@ -44,10 +52,21 @@ def check_clocks() -> None:
         return
     cur, mx = state
     if cur < mx:
+        log.info("GPU governor active (%d < %d) — trying sudo -n jetson_clocks",
+                 cur, mx)
+        try:
+            subprocess.run(["sudo", "-n", "jetson_clocks"], check=True,
+                           capture_output=True, timeout=30)
+            state = gpu_clock_state()
+            cur, mx = state if state else (cur, mx)
+        except (subprocess.SubprocessError, FileNotFoundError):
+            pass
+    if cur < mx:
         log.warning("*" * 64)
         log.warning("GPU clock %d < max %d: DVFS governor is active!", cur, mx)
         log.warning("memory-bound stages will NOT ramp clocks; numbers will")
-        log.warning("be ~30%% slow. Run:  sudo jetson_clocks   and retry.")
+        log.warning("be ~30%% slow. Run:  sudo jetson_clocks   (or")
+        log.warning("bash scripts/run_all.sh) and retry.")
         log.warning("*" * 64)
     else:
         log.info("GPU clock locked at %.0f MHz — OK", cur / 1e6)
@@ -99,8 +118,11 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--mode", choices=["umic", "eager", "both"], default="umic")
     p.add_argument("--runs", type=int, default=3, help="measured runs per mode")
-    p.add_argument("--warmup", type=int, default=2,
-                   help="warmup runs (steady state needs >= 2 at locked clocks)")
+    p.add_argument("--warmup", type=int, default=5,
+                   help="warmup runs before measuring (measurement rule: "
+                        "steady state is judged after 5+ runs incl. warmup — "
+                        "allocator/page warming steps every stage down over "
+                        "the first ~4 runs even at locked clocks)")
     p.add_argument("--clip-id", default=None, help="dataset clip id override")
     p.add_argument("--adaptive-flow", action="store_true",
                    help="opt-in approximate flow (NFE6, ~4 cm deviation)")
@@ -110,7 +132,7 @@ def main() -> None:
 
     from umic import bench
 
-    check_clocks()
+    ensure_clocks()
     expected = load_expected()
 
     model = bench.load_model()
