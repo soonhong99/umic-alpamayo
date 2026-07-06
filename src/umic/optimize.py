@@ -43,7 +43,10 @@ class UmicConfig:
         add_rmsnorm_fusion: attn-residual add folded into post-norm
             (LM + expert decoder layers).
         text_rope_fusion: fused text RoPE (LM prefill/decode + expert).
-        vision_fusion: VE fused LayerNorm + vision RoPE + bf16 residual.
+        vision_fusion: VE fused LayerNorm + vision RoPE + bf16 residual +
+            patch-embed conv->linear + packed varlen attention + the
+            grid_thw-constants-cache/residual-add pipeline fusion
+            (260706 VE investigation, -27.04% combined on the VE stage).
         flow_cache: InplaceKVCache for the flow append-then-crop loop.
         decode_cache: InplaceKVCache for autoregressive decode (only
             used when decode_graph is off; the graph runner owns the
@@ -127,6 +130,15 @@ def apply(model: nn.Module, config: UmicConfig | None = None) -> dict:
         report["ve_bf16_residual"] = integrate.fuse_bf16_residual(visual)
         # ViT qkv->Triton and fc1+GELU stay OFF: measured losers at the
         # ViT shapes (see results/260610_m3_ve in the research repo).
+        report["ve_patch_embed_fused"] = integrate.fuse_patch_embed_linear(visual)
+        report["ve_attn_varlen_fused"] = integrate.fuse_vision_attention_varlen(visual)
+        report["ve_pipeline_fused"] = integrate.fuse_vision_encoder_pipeline(visual)
+        # ve_pipeline_fused replaces visual.forward wholesale (constants
+        # cache + residual-add/LayerNorm fusion, intra- and cross-block);
+        # it calls patch_embed/attn as ordinary submodule calls, so it
+        # composes correctly with the two lines above whether or not
+        # they matched anything (260706 VE investigation, -27.04%
+        # combined on top of the layernorm/rope/bf16 fusions above).
 
     expert = getattr(model, "expert", None)
     if cfg.flow_cache and expert is not None:

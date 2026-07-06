@@ -6,6 +6,7 @@
 ![cuda](https://img.shields.io/badge/CUDA-13.0-blue)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![speedup](https://img.shields.io/badge/e2e_latency-−29.8%25-brightgreen)
+![vision_encoder](https://img.shields.io/badge/vision_encoder-−59.9%25-brightgreen)
 ![license](https://img.shields.io/badge/license-research_only-lightgrey)
 
 체크포인트 수정 없음, 양자화 없음, 근사 없음. 같은 수학을 **더 적은 커널, 더 적은 DRAM 왕복**으로 실행한다. 출력은 eager와 등가임이 검증되어 있다 (3,106 토큰 전부 일치, 궤적 ADE 3.8 mm).
@@ -14,13 +15,13 @@
 
 | 단계 | eager | UMIC | 개선 |
 |------|-------|------|------|
-| Vision Encoder | 532 ms | **305 ms** | −42.7% |
-| LM Prefill | 1,090 ms | **588 ms** | −46.1% |
-| LM Decode | 78.2 ms/step | **70.0 ms/step** | −10.5% |
-| Flow (Action Expert) | 721 ms | **449 ms** | −37.7% |
-| **전체 (19 decode steps)** | **3,846 ms** | **2,701 ms** | **−29.8%** |
+| Vision Encoder | 484 ms | **194 ms** | **−59.9%** |
+| LM Prefill | 842 ms | **587 ms** | −30.3% |
+| LM Decode | 74.3 ms/step | **71.8 ms/step** | −3.4% |
+| Flow (Action Expert) | 671 ms | **417 ms** | −37.9% |
+| **전체 (16-step 정규화 wall)** | **3,185 ms** | **2,347 ms** | **−26.3%** |
 
-<sub>공식 벤치마크 2026-06-11, 동일 조건 (클럭 고정, steady state). 측정 조건: [docs/260611_official_benchmark.md](docs/260611_official_benchmark.md)</sub>
+<sub>가장 최근 검증 2026-07-06 (`run_pipeline.py --mode both`, 동일 세션에서 eager·UMIC 연속 측정, 클럭 고정). Vision Encoder는 이번에 추가된 3개 융합(패치 임베딩 Conv→Linear, 패킹된 varlen attention, grid_thw 상수 캐싱+residual 융합 파이프라인)으로 기존 UMIC 대비 추가 −27.0% 더 빨라졌다. 상세: [docs/260706_ve_production_integration.md](docs/260706_ve_production_integration.md). 이전 공식 벤치마크(2026-06-11, VE 최적화 이전): [docs/260611_official_benchmark.md](docs/260611_official_benchmark.md), eager 대비 −29.8% (3,846→2,701 ms). 두 수치 모두 유효하며, 측정 세션과 eager 기준선이 board 상태에 따라 자연히 다르다(§7 참고).</sub>
 
 ```bash
 git clone https://github.com/soonhong99/umic-alpamayo.git && cd umic-alpamayo
@@ -80,20 +81,23 @@ flowchart LR
 | ViT fc1+GELU fusion | K=1280에서 cuBLAS 승리 | - | **기각** |
 | cross-stage prefetch | - | stage 전환 bubble 실측 0.6%뿐 | **폐기** (unified memory엔 숨길 전송이 없음) |
 
-## 3. 무엇이 바뀌는가: 채택된 최적화 8종
+## 3. 무엇이 바뀌는가: 채택된 최적화 11종
 
 | # | 패턴 | eager의 낭비 | UMIC | 대표 실측 |
 |---|------|--------------|------|-----------|
 | 1 | MLP gate·SiLU·up (P5) | 커널 4개, DRAM 왕복 3회 | 1 커널 | Prefill DRAM 232→148 GB |
 | 2 | q/o projection | cuBLAS가 이론의 6.6× bytes | Triton GEMM (1.14×, L2 hit 94%) | → 134 GB |
 | 3 | RMSNorm | fp32 pow/mean/mul/cast 체인 5+ 커널 | 1 커널 (이론 1.00×) | → 86 GB, 커널 수 2,070→947 |
-| 4 | residual add + norm | 독립 elementwise 왕복 | post-norm에 흡수 | flow −7 ms |
+| 4 | residual add + norm (LM) | 독립 elementwise 왕복 | post-norm에 흡수 | flow −7 ms |
 | 5 | RoPE (vision/text) | fp32 cast+cat 8 커널, 8.9 ms/block | 1 커널 0.63 ms (14.2×) | VE 728→454 ms |
 | 6 | LayerNorm (ViT) | RMSNorm과 동일 병리 | 1 커널 | VE DRAM −12.6% |
 | 7 | KV cat-copy | DynamicCache가 매 step 3,100토큰 prefix 재복사 | InplaceKVCache: in-place 쓰기, crop은 포인터 이동 O(1) | Flow DRAM 122→84 GB |
 | 8 | decode dispatch bubble | CPU 커널 launch 대기로 GPU idle ~10.6% | KV 길이별 CUDA Graph, 추론 간 재사용 (10 Hz 운영 시 캡처 1회 후 replay만) | decode −13% |
+| 9 | ViT 패치 임베딩 (Conv3d) | stride=kernel(비중첩)인데 conv 경로로 처리, cuDNN이 이론보다 53× 느린 implicit-GEMM 사용 | 동일 연산인 Linear로 교체(fp64로 등가성 확인) | 18.97→0.36 ms |
+| 10 | ViT attention split+concat | 이미지 16개를 따로 attn 계산 후 concat, 커널 호출 432회 | 1회의 packed varlen attention(`_flash_attention_forward`), 커널 호출 27회 | −7.33%, bit-exact |
+| 11 | ViT residual add + LayerNorm | 블록 내부·블록 간 잔차 덧셈이 별도 커널로 유휴 | 24/27 지점에서 add+LN 융합(내부 1곳 + 블록 간 다음 norm까지) | −4.16% (내부+교차) |
 
-1~6은 커널 fusion, 7은 복사 제거, 8은 스케줄링이다. 셋 다 "같은 수학, 다른 실행"이라는 원칙 안에 있다. 유일한 예외로 근사 옵션 `adaptive_flow`(중간 ODE step 생략, flow −40%, 궤적 ~4 cm 편차)가 있으며 **기본 off**다.
+1~7·9·11은 커널 fusion, 7은 복사 제거이기도 하고, 8은 스케줄링(유휴시간 제거), 10은 배칭(커널 호출 수 축소)이다. 전부 "같은 수학, 다른 실행"이라는 원칙 안에 있다(9~11은 fp64/bit-exact로 등가성 확인, 상세: [docs/260706_ve_production_integration.md](docs/260706_ve_production_integration.md)). 유일한 예외로 근사 옵션 `adaptive_flow`(중간 ODE step 생략, flow −40%, 궤적 ~4 cm 편차)가 있으며 **기본 off**다.
 
 ---
 
@@ -135,21 +139,21 @@ bash scripts/run_all.sh --runs 6 --warmup 8    # 더 긴 측정
 
 run마다 단계별 ms가 이 보드의 기대 범위([configs/expected_thor.yaml](configs/expected_thor.yaml))와 함께 출력되고, 범위 안이면 `[OK]`, 벗어나면 `[SLOW]`/`[FAST]`로 판정된다.
 
-아래는 2026-07-04 이 repo 검증 실행의 실제 출력이다:
+아래는 2026-07-06 이 repo 검증 실행의 실제 출력이다(VE 3종 융합 추가 반영):
 
 ```
 === umic run 3/3 (19 decode steps) ===
 stage                measured      expected     verdict
 -------------------------------------------------------
-VE                    259.0 ms       230-340    [OK]
-LM Prefill            577.0 ms       520-660    [OK]
-Decode/step (SS)       70.5 ms         64-78    [OK]
-Flow                  412.8 ms       370-500    [OK]
-Wall total           2614.9 ms     2300-2950    [OK]
+VE                    194.3 ms       170-230    [OK]
+LM Prefill            587.7 ms       520-660    [OK]
+Decode/step (SS)       71.8 ms         64-78    [OK]
+Flow                  416.9 ms       370-500    [OK]
+Wall total           2590.6 ms     2250-2950    [OK]
 
- eager median: VE 482 | Prefill 838 | Decode 73.1/step | Flow 666 | wall 3177 ms
-  umic median: VE 259 | Prefill 577 | Decode 70.5/step | Flow 413 | wall 2615 ms
-UMIC vs eager wall (16-step normalized): -24.7%  (3155 -> 2377 ms; official reference: -29.8%)
+ eager median: VE 484 | Prefill 842 | Decode 74.3/step | Flow 671 | wall 3211 ms
+  umic median: VE 194 | Prefill 587 | Decode 71.8/step | Flow 417 | wall 2591 ms
+UMIC vs eager wall (16-step normalized): -26.3%  (3185 -> 2347 ms; official reference: -29.8%)
 ```
 
 판정 해석:
@@ -208,6 +212,7 @@ configs/
   expected_thor.yaml  이 보드의 단계별 기대 ms 범위 (판정 기준)
 ```
 
+- [docs/260706_ve_production_integration.md](docs/260706_ve_production_integration.md): VE 3종 융합(패치 임베딩·varlen attention·residual+LN 파이프라인) 발견 과정과 production 통합 전 과정
 - [docs/260611_official_benchmark.md](docs/260611_official_benchmark.md): 공식 수치의 측정 조건과 구 수치 정정 이력
 - [docs/260611_output_equivalence.md](docs/260611_output_equivalence.md): 출력 등가성 게이트 (토큰 일치 + ADE 3.8 mm)
 - [docs/current_scope.md](docs/current_scope.md): 이 repo에 포함된 확정 범위와 제외 범위

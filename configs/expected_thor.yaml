@@ -1,6 +1,6 @@
 # Expected per-stage latency ranges on Jetson AGX Thor (SM 11.0).
 #
-# Two measurement anchors, both at locked clocks, clip 030c760c
+# Three measurement anchors, all at locked clocks, clip 030c760c
 # (prompt 3,086 tokens):
 #   1. official benchmark 2026-06-11: eager VE 532 / PF 1,090 / dec 78.2 /
 #      flow 721 (19-step wall 3,846) vs UMIC VE 305 / PF 588 / dec 70.0 /
@@ -8,9 +8,17 @@
 #   2. repo verification 2026-07-04 (this repo, run_pipeline.py --mode both):
 #      eager VE 482 / PF 838 / dec 73.1 / flow 666 (16-step wall 3,177) vs
 #      UMIC VE 259 / PF 577 / dec 70.5 / flow 413 (19-step wall 2,615)
-# Ranges below cover both anchors with a small margin. Board state
+#   3. VE production integration 2026-07-06 (this repo, run_pipeline.py
+#      --mode both; adds patch-embed conv->linear, packed varlen vision
+#      attention, and the grid_thw-cache/residual-add pipeline fusion --
+#      see docs/260706_ve_production_integration.md): eager VE 484 / PF
+#      842 / dec 74.3 / flow 671 (wall 3,211) vs UMIC VE 194 / PF 587 /
+#      dec 71.8 / flow 417 (wall 2,591) -> -26.3% (16-step normalized)
+# Ranges below cover all three anchors with a small margin. Board state
 # (thermal history, library versions) moves the eager baseline by up to
-# ~20%; the UMIC stage values have been stable across both anchors.
+# ~20%; the LM/Flow/Decode UMIC stage values have been stable across all
+# three anchors -- only VE_ms (umic) moved, since anchor 3 is the first
+# to include the VE fusions above; anchors 1-2 predate them.
 #
 # Interpretation of a verdict outside the range:
 #   SLOW -> almost always the DVFS governor (run `sudo jetson_clocks`),
@@ -38,8 +46,8 @@ eager:
   wall_ms: [2900, 4200]
 
 umic:
-  VE_ms: [230, 340]
+  VE_ms: [170, 230]                  # updated 260706, was [230, 340] pre-VE-fusion
   LM_Prefill_ms: [520, 660]
   decode_step_ss_ms: [64, 78]
   Flow_ms: [370, 500]
-  wall_ms: [2300, 2950]
+  wall_ms: [2250, 2950]              # lower bound nudged down for the VE win
