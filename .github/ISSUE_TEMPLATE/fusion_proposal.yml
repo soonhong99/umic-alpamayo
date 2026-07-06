@@ -1,0 +1,36 @@
+name: 새 최적화(fusion) 제안
+description: 새로운 커널 fusion이나 스케줄링 최적화를 제안한다.
+labels: ["enhancement", "fusion-proposal"]
+body:
+  - type: textarea
+    id: motivation
+    attributes:
+      label: 낭비 지점 (ncu 실측 기반)
+      description: 어떤 커널이 이론 대비 몇 배의 DRAM bytes/시간을 쓰는지 실측값으로 적는다.
+    validations:
+      required: true
+  - type: textarea
+    id: structural-match
+    attributes:
+      label: 구조 매칭 조건
+      description: 클래스 이름이 아니라 어떤 속성/시그니처로 이 모티프를 찾을 것인지 적는다(CONTRIBUTING.md §3 참고).
+    validations:
+      required: true
+  - type: textarea
+    id: correctness
+    attributes:
+      label: 정확도 검증 계획
+      description: bit-exact인지, 아니면 어느 정도의 오차를 예상하고 어떻게 검증할 것인지.
+    validations:
+      required: false
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 채택 기준(README §2) 확인
+      options:
+        - label: 단독 벤치가 아니라 실파이프라인(`run_pipeline.py --mode both`)으로 검증할 계획이다
+          required: false
+        - label: 가중치를 복사·변경하지 않는 방식이다(view/reshape만 사용)
+          required: false
+        - label: 매칭 실패 시 조용히 원본 forward를 유지하는 안전한 fallback이 있다
+          required: false

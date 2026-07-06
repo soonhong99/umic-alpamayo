@@ -19,6 +19,7 @@ from __future__ import annotations
 import platform
 import sys
 import time
+import types
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +40,7 @@ def info(label: str, detail: str) -> None:
     print(f"  [--]   {label:<34} {detail}")
 
 
-def section_environment() -> "torch":
+def section_environment() -> types.ModuleType:
     print("\n== 1. environment ==")
     print(f"  python  {sys.version.split()[0]}  ({platform.machine()})")
     try:

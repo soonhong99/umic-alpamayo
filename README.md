@@ -5,7 +5,7 @@
 ![platform](https://img.shields.io/badge/platform-Jetson_AGX_Thor_(SM_11.0)-76b900)
 ![cuda](https://img.shields.io/badge/CUDA-13.0-blue)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
-![speedup](https://img.shields.io/badge/e2e_latency-−29.8%25-brightgreen)
+![speedup](https://img.shields.io/badge/e2e_latency-−26.3%25-brightgreen)
 ![vision_encoder](https://img.shields.io/badge/vision_encoder-−59.9%25-brightgreen)
 ![license](https://img.shields.io/badge/license-research_only-lightgrey)
 
@@ -21,7 +21,7 @@
 | Flow (Action Expert) | 671 ms | **417 ms** | −37.9% |
 | **전체 (16-step 정규화 wall)** | **3,185 ms** | **2,347 ms** | **−26.3%** |
 
-<sub>가장 최근 검증 2026-07-06 (`run_pipeline.py --mode both`, 동일 세션에서 eager·UMIC 연속 측정, 클럭 고정). Vision Encoder는 이번에 추가된 3개 융합(패치 임베딩 Conv→Linear, 패킹된 varlen attention, grid_thw 상수 캐싱+residual 융합 파이프라인)으로 기존 UMIC 대비 추가 −27.0% 더 빨라졌다. 상세: [docs/260706_ve_production_integration.md](docs/260706_ve_production_integration.md). 이전 공식 벤치마크(2026-06-11, VE 최적화 이전): [docs/260611_official_benchmark.md](docs/260611_official_benchmark.md), eager 대비 −29.8% (3,846→2,701 ms). 두 수치 모두 유효하며, 측정 세션과 eager 기준선이 board 상태에 따라 자연히 다르다(§7 참고).</sub>
+<sub>가장 최근 검증 2026-07-06, 클럭 고정 상태에서 `run_pipeline.py --mode both`로 eager·UMIC을 같은 세션에 연속 측정한 수치다. 재현: `bash scripts/run_all.sh`(§7 측정 규칙 참고). 이전 측정값과 각 변경의 배경은 [CHANGELOG.md](CHANGELOG.md)에 날짜별로 남아있다.</sub>
 
 ```bash
 git clone https://github.com/soonhong99/umic-alpamayo.git && cd umic-alpamayo
@@ -212,6 +212,8 @@ configs/
   expected_thor.yaml  이 보드의 단계별 기대 ms 범위 (판정 기준)
 ```
 
+- [CHANGELOG.md](CHANGELOG.md): 날짜별 변경 이력과 그 시점의 측정값(README는 항상 최신 수치만 유지)
+- [docs/REPORT_TEMPLATE.md](docs/REPORT_TEMPLATE.md): 이 repo의 조사/변경 보고서 작성 표준(개조식, 개정이력 표 포함)
 - [docs/260706_ve_production_integration.md](docs/260706_ve_production_integration.md): VE 3종 융합(패치 임베딩·varlen attention·residual+LN 파이프라인) 발견 과정과 production 통합 전 과정
 - [docs/260611_official_benchmark.md](docs/260611_official_benchmark.md): 공식 수치의 측정 조건과 구 수치 정정 이력
 - [docs/260611_output_equivalence.md](docs/260611_output_equivalence.md): 출력 등가성 게이트 (토큰 일치 + ADE 3.8 mm)
@@ -219,5 +221,9 @@ configs/
 - [docs/onboarding.md](docs/onboarding.md): 새 연구생용 첫 실행 체크리스트
 - [docs/260610_01_umic_design_ko.md](docs/260610_01_umic_design_ko.md): 초기 UMIC 설계서와 연구 로그 (일부 private repo 경로 포함)
 - 실험 전 과정(ncu 측정, 기각된 시도 포함)은 연구 repo `soonhong99/umic` (private)
+
+## 9. 기여
+
+새 최적화를 추가하거나 버그를 보고하려면 [CONTRIBUTING.md](.github/CONTRIBUTING.md)를 먼저 읽는다. 이슈/PR 템플릿이 자동으로 뜬다.
 
 License: research use only. Alpamayo 1.5는 NVIDIA non-commercial research license를 따른다.

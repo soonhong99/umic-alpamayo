@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 온보딩/실행 문제
+    url: https://github.com/soonhong99/umic-alpamayo/blob/main/docs/onboarding.md
+    about: "check_env.py 실패, [SLOW] 판정 등은 온보딩 문서의 §3(자주 막히는 지점)을 먼저 확인한다."

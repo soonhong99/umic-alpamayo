@@ -1,30 +1,19 @@
-# Expected per-stage latency ranges on Jetson AGX Thor (SM 11.0).
+# Expected per-stage latency ranges on Jetson AGX Thor (SM 11.0), locked
+# clocks, clip 030c760c (prompt 3,086 tokens). Ranges are set from the
+# latest measurement anchor with a small margin for board-state variance
+# (thermal history, library versions can move the eager baseline ~20%;
+# the UMIC stage values are steadier run to run).
 #
-# Three measurement anchors, all at locked clocks, clip 030c760c
-# (prompt 3,086 tokens):
-#   1. official benchmark 2026-06-11: eager VE 532 / PF 1,090 / dec 78.2 /
-#      flow 721 (19-step wall 3,846) vs UMIC VE 305 / PF 588 / dec 70.0 /
-#      flow 449 (wall 2,701) -> -29.8%
-#   2. repo verification 2026-07-04 (this repo, run_pipeline.py --mode both):
-#      eager VE 482 / PF 838 / dec 73.1 / flow 666 (16-step wall 3,177) vs
-#      UMIC VE 259 / PF 577 / dec 70.5 / flow 413 (19-step wall 2,615)
-#   3. VE production integration 2026-07-06 (this repo, run_pipeline.py
-#      --mode both; adds patch-embed conv->linear, packed varlen vision
-#      attention, and the grid_thw-cache/residual-add pipeline fusion --
-#      see docs/260706_ve_production_integration.md): eager VE 484 / PF
-#      842 / dec 74.3 / flow 671 (wall 3,211) vs UMIC VE 194 / PF 587 /
-#      dec 71.8 / flow 417 (wall 2,591) -> -26.3% (16-step normalized)
-# Ranges below cover all three anchors with a small margin. Board state
-# (thermal history, library versions) moves the eager baseline by up to
-# ~20%; the LM/Flow/Decode UMIC stage values have been stable across all
-# three anchors -- only VE_ms (umic) moved, since anchor 3 is the first
-# to include the VE fusions above; anchors 1-2 predate them.
+# Full history of anchors (each measurement, its date, and what changed
+# since the previous one) lives in CHANGELOG.md, not here -- update the
+# ranges below when a change moves a stage outside them, and add the new
+# measurement as a CHANGELOG entry rather than a comment in this file.
 #
 # Interpretation of a verdict outside the range:
 #   SLOW -> almost always the DVFS governor (run `sudo jetson_clocks`),
 #           a cold board (steady state needs 5+ runs incl. warmup), or for
 #           UMIC run 1 specifically: CUDA Graph capture (~19 graphs,
-#           decode ~100 ms/step once) — judge from run 2 onward.
+#           decode ~100 ms/step once); judge from run 2 onward.
 #   FAST -> different clip or fewer decode steps (wall scales with steps;
 #           the step count is sampled and varies 13-20 run to run).
 #

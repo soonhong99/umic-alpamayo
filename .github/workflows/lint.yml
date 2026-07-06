@@ -1,0 +1,34 @@
+name: lint
+
+# This repo's actual runtime code needs a Jetson AGX Thor board (CUDA
+# 13.0, SM 11.0) to execute, so GitHub-hosted runners cannot run the
+# real benchmarks or kernel tests. This workflow only does what's
+# possible without that hardware: catch syntax errors and obvious
+# undefined-name bugs before they reach the board, via static analysis
+# (pyflakes parses the AST; it does not need torch/triton installed).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Byte-compile check (catches syntax errors)
+        run: python -m py_compile $(find src scripts -name "*.py")
+
+      - name: Install flake8
+        run: python -m pip install flake8
+
+      - name: Static analysis (undefined names, F-codes only; respects existing # noqa)
+        run: python -m flake8 --select=F src scripts

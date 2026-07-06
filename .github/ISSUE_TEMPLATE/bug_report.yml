@@ -1,0 +1,38 @@
+name: 버그 리포트
+description: 기대한 동작과 다르게 실행되는 문제를 보고한다.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 무엇이 잘못됐는가
+      description: 기대했던 동작과 실제 동작을 함께 적는다.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 재현 방법
+      description: 실행한 명령어(`run_pipeline.py --mode ...` 등)와 clip id를 포함한다.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: 환경 점검 결과
+      description: 가능하면 `python scripts/check_env.py` 출력을 붙여넣는다.
+      render: text
+    validations:
+      required: false
+  - type: dropdown
+    id: clocks
+    attributes:
+      label: GPU 클럭 고정 여부
+      description: 대부분의 [SLOW] 판정은 클럭 미고정이 원인이다(docs/onboarding.md §3 참고).
+      options:
+        - "예 (sudo jetson_clocks 실행함)"
+        - "아니오"
+        - "모름"
+    validations:
+      required: true
