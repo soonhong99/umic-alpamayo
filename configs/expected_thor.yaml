@@ -31,6 +31,16 @@
 # available" at the first forward. See src/umic/integrate.py.
 alpamayo1_5_commit: 2eff7037e47afb96a578b3d1bca453a373cd781e
 
+# PyTorch the latency ranges below were measured on. Informational, not a gate.
+# This is a source build (pytorch/pytorch @ ba56102 = tag v2.8.0, sm_110) with
+# 14 unpublished local patches, so nobody else can reproduce it exactly -- and
+# nobody needs to: stock torch 2.11.0+cu130 ships sm_110 and runs on Thor with
+# no patches. Checked 2026-07-27, same board, locked clocks: UMIC -26.3% under
+# 2.11 vs -27.1% under 2.8. The optimizations still pay off; the ranges here
+# may not fit. Requires triton >= 3.7.1 -- torch 2.11 bundles 3.6.0, which
+# cannot emit sm_110a.
+reference_torch: "2.8.0a0+gitba56102"
+
 conditions:
   jetson_clocks: required          # sudo jetson_clocks before measuring
   warmup_runs: 5            # measurement rule: judge steady state after
