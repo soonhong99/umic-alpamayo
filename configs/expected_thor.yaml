@@ -19,6 +19,18 @@
 #
 # Keys match umic.bench.collect_timing() output. Units: ms.
 
+# Source revision of NVIDIA's alpamayo1_5 that every measurement here was
+# taken against. It is a git checkout, not a pip package, so nothing pins it
+# automatically -- check_env.py diffs your HEAD against this value.
+#
+# This matters beyond reproducibility. UMIC reaches into the model
+# structurally (gate/up/down MLP, pre-norm decoder layers, qwen3_vl RoPE) and
+# newer revisions also changed the attention default to flash_attention_2,
+# whose wheels have no SM 11.0 kernels -- on Thor that is a hard ImportError at
+# load, and installing flash-attn only converts it into "no kernel image is
+# available" at the first forward. See src/umic/integrate.py.
+alpamayo1_5_commit: 2eff7037e47afb96a578b3d1bca453a373cd781e
+
 conditions:
   jetson_clocks: required          # sudo jetson_clocks before measuring
   warmup_runs: 5            # measurement rule: judge steady state after

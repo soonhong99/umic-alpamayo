@@ -17,7 +17,10 @@ Usage:  python scripts/check_env.py
 from __future__ import annotations
 
 import platform
+import re
+import subprocess
 import sys
+import sysconfig
 import time
 import types
 from pathlib import Path
@@ -26,14 +29,44 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 FAIL = 0
+# Copy-pasteable commands that would clear each [FAIL], collected as they are
+# detected and printed together at the end. The point is that one run of this
+# script tells you everything you have to do, instead of one thing per attempt.
+FIXES: list[tuple[str, str]] = []
 
 
-def status(ok: bool, label: str, detail: str = "") -> None:
+def status(ok: bool, label: str, detail: str = "", fix: str | None = None) -> None:
     global FAIL
     mark = "[OK]  " if ok else "[FAIL]"
     if not ok:
         FAIL += 1
+        if fix:
+            FIXES.append((label, fix))
     print(f"  {mark} {label:<34} {detail}")
+
+
+def _git(repo: Path, *args: str) -> str | None:
+    """git stdout, or None on any failure (missing git, not a repo, timeout)."""
+    try:
+        proc = subprocess.run(["git", "-C", str(repo), *args],
+                              capture_output=True, text=True, timeout=10, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def expected_alpamayo_commit() -> str | None:
+    """Read the pinned commit out of configs/expected_thor.yaml.
+
+    Deliberately a regex, not PyYAML: a missing PyYAML is itself one of the
+    setup failures this script exists to report, so it must not need it.
+    """
+    try:
+        text = (REPO_ROOT / "configs/expected_thor.yaml").read_text()
+    except OSError:
+        return None
+    m = re.search(r"^alpamayo1_5_commit:\s*([0-9a-f]{40})\s*$", text, re.M)
+    return m.group(1) if m else None
 
 
 def info(label: str, detail: str) -> None:
@@ -60,7 +93,19 @@ def section_environment() -> types.ModuleType:
         status(True, "triton", triton.__version__)
     except ImportError:
         status(False, "triton import",
-               "fused kernels unavailable — everything falls back to eager")
+               "fused kernels unavailable — everything falls back to eager",
+               fix="python3 -m pip install triton==3.7.1")
+
+    # Triton compiles a C shim at first kernel launch, so it needs the CPython
+    # development headers at RUNTIME -- not just at install time. Missing ones
+    # surface as `fatal error: Python.h: No such file or directory` from inside
+    # a kernel call, long after `import triton` succeeded, which is a confusing
+    # place to meet them. Check up front instead.
+    header = Path(sysconfig.get_paths()["include"]) / "Python.h"
+    ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+    status(header.exists(), "Python.h (Triton JIT needs it)",
+           str(header) if header.exists() else f"missing at {header}",
+           fix=f"sudo apt install python{ver}-dev      # or python3-dev")
 
     # jetson_clocks state (measurement rule 1: locked clocks mandatory)
     from umic.bench import gpu_clock_state
@@ -71,21 +116,42 @@ def section_environment() -> types.ModuleType:
         cur, mx = state
         locked = cur >= mx
         status(locked, "GPU clock locked",
-               f"{cur / 1e6:.0f} / {mx / 1e6:.0f} MHz"
-               + ("" if locked else "  -> run: sudo jetson_clocks"))
+               f"{cur / 1e6:.0f} / {mx / 1e6:.0f} MHz",
+               fix="sudo jetson_clocks")
     return torch
 
 
 def section_alpamayo() -> None:
-    print("\n== 2. alpamayo (informational) ==")
+    print("\n== 2. alpamayo ==")
+    expected = expected_alpamayo_commit()
     try:
         import alpamayo1_5  # noqa: F401
-        info("alpamayo1_5 package", "importable")
     except ImportError:
         info("alpamayo1_5 package",
              "NOT importable — run_pipeline.py needs the alpamayo venv "
              "(see README section 6)")
         return
+    info("alpamayo1_5 package", "importable")
+
+    # Which revision, not just "is it there". alpamayo1_5 is a source checkout,
+    # so nothing pins it; a fresh clone lands on main, which is months ahead of
+    # what every number in configs/expected_thor.yaml was measured against.
+    # UMIC matches the model structurally and newer revisions also default
+    # attention to flash_attention_2, which cannot dispatch on SM 11.0.
+    location = getattr(alpamayo1_5, "__file__", None)
+    toplevel = _git(Path(location).resolve().parent, "rev-parse", "--show-toplevel") if location else None
+    head = _git(Path(toplevel), "rev-parse", "HEAD") if toplevel else None
+    if expected is None:
+        info("alpamayo1_5 commit", "no pin found in configs/expected_thor.yaml")
+    elif head is None:
+        # Installed as a package, or no git. An unknown is not a failure.
+        info("alpamayo1_5 commit",
+             f"not determinable (not a git checkout?) — expected {expected[:12]}")
+    else:
+        status(head == expected, "alpamayo1_5 commit",
+               f"{head[:12]}" + ("" if head == expected else f" — expected {expected[:12]}"),
+               fix=f"git -C {toplevel} fetch origin && git -C {toplevel} checkout {expected}")
+
     cache = Path.home() / ".cache/huggingface/hub/models--nvidia--Alpamayo-1.5-10B"
     info("model HF cache", "present" if cache.exists()
          else "missing — first run will need HF download access")
@@ -175,8 +241,22 @@ def main() -> None:
     torch = section_environment()
     section_alpamayo()
     section_kernels(torch)
-    print(f"\n{'ALL CHECKS PASSED' if FAIL == 0 else f'{FAIL} CHECK(S) FAILED'}")
-    sys.exit(0 if FAIL == 0 else 1)
+    if FAIL == 0:
+        print("\nALL CHECKS PASSED")
+        sys.exit(0)
+
+    print(f"\n{FAIL} CHECK(S) FAILED")
+    if FIXES:
+        print("\nRun these, then re-run this script (or `bash scripts/run_all.sh`):")
+        print("-" * 64)
+        for label, fix in FIXES:
+            print(f"  # {label}")
+            print(f"  {fix}\n")
+        print("-" * 64)
+        print("Nothing here is run for you: checking out a different commit in")
+        print("someone else's repository can discard uncommitted work, and apt")
+        print("needs a password. Read them before pasting.")
+    sys.exit(1)
 
 
 if __name__ == "__main__":
