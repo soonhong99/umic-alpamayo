@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 
 echo "== [1/3] jetson_clocks (DVFS lock — mandatory for measurement) =="
 if command -v jetson_clocks >/dev/null 2>&1; then
-    sudo jetson_clocks && echo "clocks locked."
+    sudo -n jetson_clocks 2>/dev/null && echo "clocks locked." \
+        || echo "could not lock clocks without a password -- run: sudo jetson_clocks"
 else
     echo "jetson_clocks not found (non-Jetson host?) — skipping."
 fi

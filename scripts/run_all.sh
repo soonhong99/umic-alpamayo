@@ -4,7 +4,7 @@
 #   bash scripts/run_all.sh                       # eager vs UMIC A/B (default)
 #   bash scripts/run_all.sh --mode umic --runs 3  # args pass through to run_pipeline.py
 #
-# Steps: [1] lock clocks (sudo, asked once)  [2] activate alpamayo venv
+# Steps: [1] lock clocks (passwordless only)  [2] activate alpamayo venv
 #        [3] environment + kernel check      [4] benchmark (warmup 5 + runs 3)
 # Aborts before the benchmark if the environment check fails.
 
@@ -13,7 +13,15 @@ cd "$(dirname "$0")/.."
 
 echo "== [1/4] jetson_clocks (DVFS lock — mandatory for measurement) =="
 if command -v jetson_clocks >/dev/null 2>&1; then
-    sudo jetson_clocks && echo "clocks locked."
+    # -n so this never blocks on a password prompt: run_all.sh is routinely
+    # launched under nohup, where a prompt hangs forever instead of failing.
+    if sudo -n jetson_clocks 2>/dev/null; then
+        echo "clocks locked."
+    else
+        echo "could not lock clocks without a password."
+        echo "  run this once per boot:  sudo jetson_clocks"
+        echo "  (check_env below will tell you if it actually matters)"
+    fi
 else
     echo "jetson_clocks not found (non-Jetson host?) — skipping."
 fi

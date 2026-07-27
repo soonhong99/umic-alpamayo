@@ -16,8 +16,10 @@ Usage:  python scripts/check_env.py
 
 from __future__ import annotations
 
+import os
 import platform
 import re
+import tempfile
 import subprocess
 import sys
 import sysconfig
@@ -32,17 +34,22 @@ FAIL = 0
 # Copy-pasteable commands that would clear each [FAIL], collected as they are
 # detected and printed together at the end. The point is that one run of this
 # script tells you everything you have to do, instead of one thing per attempt.
-FIXES: list[tuple[str, str]] = []
+FIXES: list[tuple[str, str, bool]] = []   # (label, command, safe to run for you)
+# status()/info() write here, never to `print`'s default. The kernel smoke
+# redirects file descriptors 1 and 2 to swallow Triton's PTX dump, and these
+# lines have to survive that.
+OUT = sys.stdout
 
 
-def status(ok: bool, label: str, detail: str = "", fix: str | None = None) -> None:
+def status(ok: bool, label: str, detail: str = "", fix: str | None = None,
+           auto: bool = False) -> None:
     global FAIL
     mark = "[OK]  " if ok else "[FAIL]"
     if not ok:
         FAIL += 1
         if fix:
-            FIXES.append((label, fix))
-    print(f"  {mark} {label:<34} {detail}")
+            FIXES.append((label, fix, auto))
+    print(f"  {mark} {label:<34} {detail}", file=OUT)
 
 
 def _git(repo: Path, *args: str) -> str | None:
@@ -85,7 +92,7 @@ def expected_alpamayo_commit() -> str | None:
 
 
 def info(label: str, detail: str) -> None:
-    print(f"  [--]   {label:<34} {detail}")
+    print(f"  [--]   {label:<34} {detail}", file=OUT)
 
 
 def section_environment() -> types.ModuleType:
@@ -116,7 +123,7 @@ def section_environment() -> types.ModuleType:
     except ImportError:
         status(False, "triton import",
                "fused kernels unavailable — everything falls back to eager",
-               fix="python3 -m pip install triton==3.7.1")
+               fix="python3 -m pip install triton==3.7.1", auto=True)
 
     # torch 2.11+ ships its own Triton (3.6.0), and that build cannot compile for
     # this device: `ptxas-blackwell fatal: Value 'sm_110a' is not defined for
@@ -126,11 +133,24 @@ def section_environment() -> types.ModuleType:
     try:
         import triton as _t
         if tuple(int(x) for x in _t.__version__.split(".")[:2]) < (3, 7):
-            status(False, "triton too old for SM 11.0",
-                   f"{_t.__version__} cannot emit sm_110a"
-                   + (" (this is torch's bundled Triton)" if "/torch211" in _t.__file__
-                      or "site-packages/triton" not in _t.__file__ else ""),
-                   fix="python3 -m pip install 'triton>=3.7.1'")
+            # Where the bad Triton lives decides the fix, and getting this wrong
+            # matters: torch>=2.11 wheels bundle their own Triton, and when that
+            # torch is on PYTHONPATH its Triton shadows site-packages. Installing
+            # a newer one with pip then changes nothing, because PYTHONPATH is
+            # searched first. Say so instead of "fixing" it uselessly.
+            shadowing = "site-packages" not in _t.__file__
+            where = str(Path(_t.__file__).parent.parent)
+            if shadowing:
+                status(False, "triton too old for SM 11.0",
+                       f"{_t.__version__} cannot emit sm_110a -- shadowing from {where}",
+                       fix=f"# {where} comes before site-packages on your PYTHONPATH.\n"
+                           f"  #   mv {where}/triton {where}/_triton-disabled\n"
+                           f"  # then a Triton >= 3.7.1 in the venv is used instead.\n"
+                           f"  # (torch's own inductor does not need it for this benchmark)")
+            else:
+                status(False, "triton too old for SM 11.0",
+                       f"{_t.__version__} cannot emit sm_110a",
+                       fix="python3 -m pip install 'triton>=3.7.1'", auto=True)
     except ImportError:
         pass
 
@@ -208,7 +228,7 @@ def _bench(fn, iters: int = 20) -> float:
 
 
 def section_kernels(torch) -> None:
-    print("\n== 3. kernel smoke (random tensors, pipeline shapes) ==")
+    print("\n== 3. kernel smoke (random tensors, pipeline shapes) ==", file=OUT)
     if not torch.cuda.is_available():
         status(False, "kernel smoke", "no CUDA device")
         return
@@ -278,30 +298,98 @@ def section_kernels(torch) -> None:
 def main() -> None:
     torch = section_environment()
     section_alpamayo()
+    # A Triton codegen failure dumps its entire PTX listing -- about 1,600 lines
+    # here -- and it writes at the file-descriptor level, so redirect_stderr
+    # does not catch it. Point fds 1 and 2 at a file for the duration, keep the
+    # real stdout for status lines, and report the file instead of the wall.
+    global OUT
+    log_path = Path(tempfile.gettempdir()) / "umic_kernel_output.log"
+    # Flush before duplicating: anything still sitting in Python's stdout buffer
+    # would otherwise be written out *after* fd 1 has been pointed at the sink,
+    # i.e. sections 1 and 2 would silently land in the compiler log instead of
+    # on screen.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    real_out = os.fdopen(os.dup(1), "w", buffering=1)
+    saved_out, saved_err = os.dup(1), os.dup(2)
+    OUT = real_out
     try:
-        section_kernels(torch)
+        with open(log_path, "w") as sink:
+            os.dup2(sink.fileno(), 1)
+            os.dup2(sink.fileno(), 2)
+            try:
+                section_kernels(torch)
+            finally:
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os.dup2(saved_out, 1)
+                os.dup2(saved_err, 2)
+        noise = log_path.read_text().splitlines()
+        if len(noise) > 5:
+            print(f"  [--]   compiler output                 {len(noise)} lines -> {log_path}",
+                  file=real_out)
     except Exception as exc:  # noqa: BLE001
         # A Triton codegen failure raises out of the smoke test. Letting it
         # propagate kills the script before the fix summary prints -- i.e. it
         # hides exactly the advice the reader needs. Report and carry on.
         first = str(exc).strip().splitlines()
-        status(False, "kernel smoke", first[-1][:90] if first else type(exc).__name__,
-               fix="python3 -m pip install 'triton>=3.7.1'   # if this is a PTX/sm_110a codegen error")
+        # No fix attached: whatever went wrong here, the triton check above has
+        # already attached the right one if this is the sm_110a codegen failure.
+        # Guessing a second, possibly wrong command would just add noise.
+        status(False, "kernel smoke", first[-1][:90] if first else type(exc).__name__)
+        print(f"         full compiler output: {log_path}", file=real_out)
+    finally:
+        OUT = sys.stdout
+        for fd in (saved_out, saved_err):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
     if FAIL == 0:
         print("\nALL CHECKS PASSED")
         sys.exit(0)
 
     print(f"\n{FAIL} CHECK(S) FAILED")
-    if FIXES:
-        print("\nRun these, then re-run this script (or `bash scripts/run_all.sh`):")
+
+    # Repair what is safe to repair, then start over once so the run can just
+    # continue. Only pinned pip installs of packages that are already present
+    # qualify -- they resolve nothing and are undone by installing the old pin.
+    auto = [(label, cmd) for label, cmd, is_auto in FIXES if is_auto]
+    retried = os.environ.get("UMIC_CHECK_ENV_RETRIED") == "1"
+    if auto and not retried and "--no-fix" not in sys.argv:
+        print("\nRepairing (pass --no-fix to only report):")
         print("-" * 64)
-        for label, fix in FIXES:
-            print(f"  # {label}")
-            print(f"  {fix}\n")
+        ok_all = True
+        for label, cmd in dict.fromkeys(auto):
+            print(f"  # {label}\n  {cmd}")
+            proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=900)
+            if proc.returncode == 0:
+                print("    OK")
+            else:
+                ok_all = False
+                tail = (proc.stderr or proc.stdout).strip().splitlines()
+                print(f"    FAILED: {tail[-1][:120] if tail else proc.returncode}")
         print("-" * 64)
-        print("Nothing here is run for you: checking out a different commit in")
-        print("someone else's repository can discard uncommitted work, and apt")
-        print("needs a password. Read them before pasting.")
+        if ok_all:
+            print("Re-checking with the repaired environment...\n")
+            os.environ["UMIC_CHECK_ENV_RETRIED"] = "1"
+            # execv replaces this process image without flushing Python's
+            # buffers. When stdout is a file or a pipe (i.e. block-buffered --
+            # `bash run_all.sh > log`, CI, nohup) everything printed above,
+            # including the list of repairs just made, is silently discarded.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os.execv(sys.executable, [sys.executable, *sys.argv])
+
+    manual = [(label, cmd) for label, cmd, is_auto in FIXES if not is_auto]
+    if manual:
+        print("\nRun these yourself, then re-run (or `bash scripts/run_all.sh`):")
+        print("-" * 64)
+        for label, cmd in manual:
+            print(f"  # {label}\n  {cmd}\n")
+        print("-" * 64)
+        print("These are not run for you: `git checkout` in someone else's")
+        print("repository can discard uncommitted work, and apt needs a password.")
     sys.exit(1)
 
 
