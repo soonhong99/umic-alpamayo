@@ -142,7 +142,7 @@ Run these, then re-run this script (or `bash scripts/run_all.sh`):
 |------|-----|
 | 보드 | Jetson AGX Thor (SM 11.0, JetPack 7, CUDA 13.0) |
 | Python | 3.10+ (Thor 표준: 3.12) |
-| PyTorch | 2.8.0 (Thor는 소스 빌드 필수: 공식 aarch64+CUDA13 wheel 없음) |
+| PyTorch | 2.8.0 이 측정 기준. **소스 빌드 필수라는 서술은 더 이상 사실이 아니다** — 표준 `torch==2.11.0+cu130` 이 arch list 에 `sm_110` 을 포함하고 Thor 에서 패치 없이 동작한다(2026-07-27 검증, UMIC 이득 −26.3% 유지). 다만 **triton 은 3.7.1 이상**이어야 한다: torch 2.11 번들 3.6.0 은 `sm_110a` 컴파일에 실패한다 |
 | Triton | 3.7.0 (직접 `@triton.jit`은 SM 11.0에서 정상 동작; 없으면 전부 eager로 폴백) |
 | transformers | ≥ 4.56 (`Cache.layers` API 기준) |
 | Python 헤더 | `python3.12-dev` — Triton이 첫 커널 실행 시 C를 컴파일하며 `Python.h`를 찾는다. 없으면 `import triton`은 성공하고 커널 호출에서 죽는다 |

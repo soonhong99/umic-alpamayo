@@ -55,6 +55,21 @@ def _git(repo: Path, *args: str) -> str | None:
     return proc.stdout.strip() if proc.returncode == 0 else None
 
 
+def reference_torch() -> str | None:
+    """torch version the latency ranges were measured against, from the config.
+
+    Informational, never a [FAIL]: a newer torch is a legitimate setup (it is
+    what removed the need to hand-patch PyTorch for Thor at all). It just means
+    the ranges below were not measured on your stack.
+    """
+    try:
+        text = (REPO_ROOT / "configs/expected_thor.yaml").read_text()
+    except OSError:
+        return None
+    m = re.search(r"^reference_torch:\s*\"?([0-9][^\"\s]*)\"?\s*$", text, re.M)
+    return m.group(1) if m else None
+
+
 def expected_alpamayo_commit() -> str | None:
     """Read the pinned commit out of configs/expected_thor.yaml.
 
@@ -82,6 +97,13 @@ def section_environment() -> types.ModuleType:
         status(False, "torch import", str(e))
         sys.exit(1)
     status(True, "torch", torch.__version__)
+    ref = reference_torch()
+    if ref and not torch.__version__.startswith(ref):
+        info("torch != measurement anchor",
+             f"anchor {ref}; every latency range in configs/expected_thor.yaml "
+             f"was measured on it")
+        info("", "torch 2.11 checked on Thor 2026-07-27: UMIC still wins "
+                 "(-26.3% vs -27.1%). Verdicts may shift; the gain holds.")
     status(torch.cuda.is_available(), "CUDA available")
     if torch.cuda.is_available():
         cap = torch.cuda.get_device_capability(0)
@@ -95,6 +117,22 @@ def section_environment() -> types.ModuleType:
         status(False, "triton import",
                "fused kernels unavailable — everything falls back to eager",
                fix="python3 -m pip install triton==3.7.1")
+
+    # torch 2.11+ ships its own Triton (3.6.0), and that build cannot compile for
+    # this device: `ptxas-blackwell fatal: Value 'sm_110a' is not defined for
+    # option 'gpu-name'`. It surfaces as a codegen error inside the kernel smoke
+    # test below, which does not look like a version problem. Say so here.
+    # Verified on Thor 2026-07-27: torch 2.11 + triton 3.7.1 passes everything.
+    try:
+        import triton as _t
+        if tuple(int(x) for x in _t.__version__.split(".")[:2]) < (3, 7):
+            status(False, "triton too old for SM 11.0",
+                   f"{_t.__version__} cannot emit sm_110a"
+                   + (" (this is torch's bundled Triton)" if "/torch211" in _t.__file__
+                      or "site-packages/triton" not in _t.__file__ else ""),
+                   fix="python3 -m pip install 'triton>=3.7.1'")
+    except ImportError:
+        pass
 
     # Triton compiles a C shim at first kernel launch, so it needs the CPython
     # development headers at RUNTIME -- not just at install time. Missing ones
@@ -240,7 +278,15 @@ def section_kernels(torch) -> None:
 def main() -> None:
     torch = section_environment()
     section_alpamayo()
-    section_kernels(torch)
+    try:
+        section_kernels(torch)
+    except Exception as exc:  # noqa: BLE001
+        # A Triton codegen failure raises out of the smoke test. Letting it
+        # propagate kills the script before the fix summary prints -- i.e. it
+        # hides exactly the advice the reader needs. Report and carry on.
+        first = str(exc).strip().splitlines()
+        status(False, "kernel smoke", first[-1][:90] if first else type(exc).__name__,
+               fix="python3 -m pip install 'triton>=3.7.1'   # if this is a PTX/sm_110a codegen error")
     if FAIL == 0:
         print("\nALL CHECKS PASSED")
         sys.exit(0)
