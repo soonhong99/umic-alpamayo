@@ -121,6 +121,20 @@ bash scripts/run_all.sh --runs 6 --warmup 8    # 더 긴 측정
 
 단계를 나눠 실행하려면: `bash scripts/setup_thor.sh` (세팅+점검만) 후 `python scripts/run_pipeline.py --mode both`. `run_pipeline.py`를 단독 실행해도 클럭 미고정을 감지하면 스스로 `sudo -n jetson_clocks`로 고정을 시도하고, 실패하면 경고를 출력한다.
 
+**환경이 안 맞으면 ③에서 멈추고, 고칠 명령을 그대로 찍어준다.** 모델 로드(3~4분)에 들어가기 전이다. 예:
+
+```text
+1 CHECK(S) FAILED
+
+Run these, then re-run this script (or `bash scripts/run_all.sh`):
+----------------------------------------------------------------
+  # alpamayo1_5 commit
+  git -C /home/me/alpamayo1.5 fetch origin && git -C /home/me/alpamayo1.5 checkout 2eff7037e47afb96a578b3d1bca453a373cd781e
+----------------------------------------------------------------
+```
+
+복사해서 실행한 뒤 `bash scripts/run_all.sh`를 다시 돌리면 된다. 자동으로 실행하지는 않는다 — 남의 저장소에서 `git checkout`은 커밋 안 한 작업을 날릴 수 있고, `apt`는 비밀번호가 필요하다.
+
 <details>
 <summary><b>요구 환경</b> (Thor의 기존 alpamayo venv면 전부 충족)</summary>
 
@@ -131,7 +145,11 @@ bash scripts/run_all.sh --runs 6 --warmup 8    # 더 긴 측정
 | PyTorch | 2.8.0 (Thor는 소스 빌드 필수: 공식 aarch64+CUDA13 wheel 없음) |
 | Triton | 3.7.0 (직접 `@triton.jit`은 SM 11.0에서 정상 동작; 없으면 전부 eager로 폴백) |
 | transformers | ≥ 4.56 (`Cache.layers` API 기준) |
+| Python 헤더 | `python3.12-dev` — Triton이 첫 커널 실행 시 C를 컴파일하며 `Python.h`를 찾는다. 없으면 `import triton`은 성공하고 커널 호출에서 죽는다 |
+| `alpamayo1_5` | **소스 체크아웃을 커밋 `2eff7037`로** (`configs/expected_thor.yaml`에 고정). pip 패키지가 아니라 아무것도 이걸 강제하지 않는다 — 새로 clone하면 `main`을 받게 되고, 이 문서의 모든 수치는 그 커밋 기준이다 |
 | Alpamayo | `nvidia/Alpamayo-1.5-10B` HF 캐시 (선택: 없어도 커널 검증까지는 가능, §6) |
+
+> **flash-attn을 설치해서 문제를 풀려고 하지 말 것.** 최신 `alpamayo1_5`는 어텐션 기본값이 `flash_attention_2`라 `flash_attn` 없이는 로드에서 `ImportError`가 난다. 그런데 Thor(SM 11.0)에서는 그 패키지의 선컴파일 커널이 아예 없어서, 설치하면 오류가 첫 forward의 `no kernel image is available`로 바뀔 뿐이다(실측 2026-07-27). 위 커밋으로 맞추면 어텐션이 sdpa로 잡히고 `flash_attn` 자체가 필요 없다. UMIC의 ViT 융합이 외부 패키지 대신 PyTorch 자체 varlen 연산을 쓰는 이유도 같다 — `src/umic/integrate.py` 참고.
 
 </details>
 
